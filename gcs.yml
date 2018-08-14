@@ -1,0 +1,138 @@
+---
+- hosts: ***
+  become: yes
+  become_user: root
+  vars_files:
+  - variables.yml
+  - secrets.yml
+  tasks:
+  - name: Install ntp
+    yum: 
+      name: ntp
+      state: latest
+
+  - name: Make sure ntpd is running
+    service:
+      enabled: yes
+      name: ntpd
+      state: started
+  #
+  # Firewall rule reference: https://docs.globus.org/globus-connect-server-installation-guide/#open-tcp-ports_section
+  #
+
+  #
+  # Required inbound ruleset. Generally set at the host level.
+  #
+
+  - name: Inbound GridFTP control channel traffic
+    iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 2811
+      source: 54.237.254.192/29 # Globus Transfer Service
+      comment: Inbound GridFTP control channel traffic
+
+  - name: Port range for bidirectional data transfers to any remote host
+    iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 50000:51000
+      comment: Port range for bidirectional data transfers to any remote host
+
+  # Only when identity method is myproxy. (Default)
+  - name: Inbound MyProxy traffic
+    iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 7512
+      comment: Inbound MyProxy traffic
+
+  # Only when identity method is myproxy-oauth.
+  - name: Inbound MyProxy OAuth traffic
+    iptables:
+      chain: INPUT
+      protocol: tcp
+      destination_port: 443
+      comment: Inbound MyProxy traffic
+
+  #
+  # Required outbound ruleset. Generally set at the network level, if set at all.
+  #
+ 
+  - name: Outbound to Globus Transfer Service's REST API
+    iptables:
+      chain: OUTPUT
+      protocol: tcp
+      destination: 54.237.254.192/29
+      destination_port: 443
+      comment: Outbound to Globus Transfer Service's REST API
+
+  - name: Outbound to Globus Nexus
+    iptables:
+      chain: OUTPUT
+      protocol: tcp
+      destination: nexus.api.globusonline.org
+      destination_port: 443
+      comment: Outbound to Globus Transfer Service's REST API
+
+  # Enables YUM installation
+  - name: Outbound to downloads.globus.org for package installation
+    iptables:
+      chain: OUTPUT
+      protocol: tcp
+      destination: downloads.globus.org
+      destination_port: 443
+      comment: Outbound to downloads.globus.org for package installation
+
+  # Only when identity method is cilogin. (Not default)
+  - name: Pull CRL file updates for CILogin based activation
+    iptables:
+      chain: OUTPUT
+      protocol: tcp
+      destination: crl.cilogin.org
+      destination_port: 443
+      comment: Pull CRL file updates for CILogin based activation
+
+  - name: Install Globus YUM Repository GPG Key
+    rpm_key:
+      key: https://downloads.globus.org/toolkit/gt6/stable/repo/rpm/RPM-GPG-KEY-Globus
+      state: present
+
+  - name: Install Globus YUM Repository
+    yum:
+      name: https://downloads.globus.org/toolkit/globus-connect-server/globus-connect-server-repo-latest.noarch.rpm
+      state: latest
+
+  - name: Install EPEL
+    yum:
+      name: https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+      state: latest
+
+  - name: Install Yum Plugin Priorities
+    yum:
+      name: yum-plugin-priorities
+      state: latest
+
+  - name: Install Globus Connect Server
+    yum:
+      name: globus-connect-server
+      state: latest
+
+  - name: Setup Globus Connect Server
+    command: /usr/bin/globus-connect-server-setup
+    environment:
+      GLOBUS_USER: "{{ globus_id_user }}"
+      GLOBUS_PASSWORD: "{{ globus_id_password }}"
+      SHORT_HOSTNAME: "{{ globus_endpoint_name }}"
+
+  - name: Make sure GridFTP is running
+    service:
+      enabled: yes
+      name: globus-gridftp-server.service
+      state: started
+
+  - name: Make sure MyProxy is running
+    service:
+      enabled: yes
+      name: myproxy-server.service
+      state: started
